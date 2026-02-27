@@ -1,9 +1,54 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, Component } from 'react';
 import { 
   ClipboardList, CheckCircle, Users, QrCode, LogOut, 
   Smartphone, Camera, UserPlus, Trash2, ChevronRight, 
-  Settings, Info
+  Settings, Info, AlertOctagon
 } from 'lucide-react';
+
+// ==========================================
+// 🚨 자체 진단 에러 바운더리 (Error Boundary)
+// 하얀 화면 대신 에러 로그를 화면에 띄워줍니다.
+// ==========================================
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null, errorInfo: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error("React Error Boundary Caught:", error, errorInfo);
+    this.setState({ errorInfo });
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-slate-900 text-red-400 p-8 font-mono flex flex-col justify-center">
+          <AlertOctagon className="w-16 h-16 mb-4 text-red-500" />
+          <h1 className="text-2xl font-black text-white mb-2">System Crash Detected</h1>
+          <p className="text-sm text-slate-400 mb-6">김민규 FDE님, 렌더링 중 오류가 발생했습니다. 아래 로그를 확인해주세요.</p>
+          <div className="bg-slate-950 p-4 rounded-xl overflow-auto text-xs border border-red-900/50">
+            <p className="font-bold text-red-300">{this.state.error && this.state.error.toString()}</p>
+            <pre className="mt-4 text-slate-500 whitespace-pre-wrap">
+              {this.state.errorInfo && this.state.errorInfo.componentStack}
+            </pre>
+          </div>
+          <button 
+            onClick={() => { localStorage.clear(); window.location.reload(); }}
+            className="mt-8 bg-red-600 text-white px-6 py-3 rounded-xl font-bold active:bg-red-700"
+          >
+            로컬 데이터 초기화 및 재시작
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // --- 앱 공통 설정 ---
 const TIME_SLOTS = ['오전', '오후', '저녁'];
@@ -26,44 +71,74 @@ const WEEKLY_SCHEDULE = {
   '토요일': ['오후']
 };
 
-export default function App() {
-  // --- 상태 관리 ---
+// ==========================================
+// 메인 앱 컴포넌트
+// ==========================================
+function MainApp() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [classId, setClassId] = useState("");
   const [inputClassId, setInputClassId] = useState("");
   
-  // 데이터 스토어 (미리보기 테스트용 기본 데이터 포함)
   const [members, setMembers] = useState([
     { id: 'm_1', name: '김민규' },
     { id: 'm_2', name: '알렉스' },
     { id: 'm_3', name: '팔란티어' }
   ]);
   const [sessions, setSessions] = useState({});
-  
   const [activeTab, setActiveTab] = useState('attendance');
   const [currentDate, setCurrentDate] = useState(getKSTDate());
   const [currentSlot, setCurrentSlot] = useState('오전');
   const [inputText, setInputText] = useState("");
-  
-  const [viewMode, setViewMode] = useState('admin'); // 'admin' | 'member'
+  const [viewMode, setViewMode] = useState('admin'); 
   const [qrSession, setQrSession] = useState(null); 
   const [baseUrl, setBaseUrl] = useState("https://smart-attend-v4.vercel.app");
   const [toast, setToast] = useState({ show: false, message: "", type: "info" });
 
-  // --- 알림 팝업 ---
   const showToast = (message, type = "info") => {
     setToast({ show: true, message, type });
     setTimeout(() => setToast({ show: false, message: "", type: "info" }), 3000);
   };
 
-  // --- 비즈니스 로직 ---
+  // 안전한 데이터 로딩 (에러 방지 로직 추가)
   const handleLogin = (e) => {
     e.preventDefault();
     if (!inputClassId.trim()) return;
-    setClassId(inputClassId.trim());
+    const cid = inputClassId.trim();
+    setClassId(cid);
+    
+    // 로컬 스토리지 데이터 파싱 시 크래시 방지
+    try {
+      const savedMembers = localStorage.getItem(`v4_members_${cid}`);
+      const savedSessions = localStorage.getItem(`v4_sessions_${cid}`);
+      
+      if (savedMembers) {
+        const parsed = JSON.parse(savedMembers);
+        if (Array.isArray(parsed)) setMembers(parsed);
+      }
+      if (savedSessions) {
+        const parsed = JSON.parse(savedSessions);
+        if (typeof parsed === 'object' && parsed !== null) setSessions(parsed);
+      }
+    } catch (error) {
+      console.error("데이터 복원 중 오류 발생, 초기화 진행", error);
+      showToast("저장된 데이터 오류로 초기화되었습니다.", "error");
+    }
+
     setIsLoggedIn(true);
-    showToast(`${inputClassId.trim()} 데이터베이스 접속 완료`, "success");
+    showToast(`${cid} 시스템 가동`, "success");
   };
+
+  // 데이터 안전 저장
+  useEffect(() => {
+    if (isLoggedIn && classId) {
+      try {
+        localStorage.setItem(`v4_members_${classId}`, JSON.stringify(members));
+        localStorage.setItem(`v4_sessions_${classId}`, JSON.stringify(sessions));
+      } catch (e) {
+        console.error("데이터 저장 실패", e);
+      }
+    }
+  }, [members, sessions, isLoggedIn, classId]);
 
   const toggleCheck = (memberId) => {
     const sessionId = `${currentDate}_${currentSlot}`;
@@ -111,10 +186,9 @@ export default function App() {
   };
 
   const currentPresents = sessions[`${currentDate}_${currentSlot}`]?.presentIds || [];
-  const currentDayName = DAYS_KR[new Date(currentDate).getDay()];
-  const availableSlots = WEEKLY_SCHEDULE[currentDayName];
+  const currentDayName = DAYS_KR[new Date(currentDate).getDay()] || '월요일'; // 안전한 기본값
+  const availableSlots = WEEKLY_SCHEDULE[currentDayName] || [];
 
-  // --- 화면 렌더링 ---
   if (!isLoggedIn) {
     return (
       <div className="h-screen w-full bg-slate-950 flex items-center justify-center p-6 font-sans">
@@ -140,7 +214,6 @@ export default function App() {
   return (
     <div className="h-screen w-full bg-slate-50 flex flex-col max-w-md mx-auto relative overflow-hidden shadow-2xl font-sans border-x border-slate-200">
       
-      {/* 알림 토스트 */}
       {toast.show && (
         <div className="absolute top-10 left-0 right-0 z-[100] px-6 animate-in slide-in-from-top-4">
           <div className={`p-4 rounded-2xl shadow-2xl text-center font-black text-sm border ${toast.type === 'error' ? 'bg-red-500 text-white border-red-600' : 'bg-slate-900 text-white border-slate-800'}`}>
@@ -149,7 +222,6 @@ export default function App() {
         </div>
       )}
 
-      {/* 상단 헤더 */}
       <header className="bg-white px-6 pt-10 pb-6 flex justify-between items-end border-b shrink-0 shadow-sm z-10">
         <div>
           <h2 className="text-2xl font-black text-slate-900 tracking-tight leading-none">
@@ -162,10 +234,8 @@ export default function App() {
         </button>
       </header>
 
-      {/* 중앙 스크롤 영역 */}
       <main className="flex-1 overflow-y-auto p-6 pb-32">
         {viewMode === 'member' ? (
-          /* [학생용 모드] - QR 스캔 후 보이는 화면 */
           <div className="space-y-6">
             <div className="bg-indigo-600 p-8 rounded-[40px] text-white shadow-xl shadow-indigo-600/20">
               <div className="flex justify-between items-start mb-4">
@@ -201,10 +271,7 @@ export default function App() {
             </div>
           </div>
         ) : (
-          /* [관리자 모드] */
           <div className="space-y-8">
-            
-            {/* 1. 출석 탭 */}
             {activeTab === 'attendance' && (
               <div className="space-y-6 animate-in fade-in">
                 <div className="flex gap-2 p-1.5 bg-slate-200/50 rounded-[28px]">
@@ -256,7 +323,6 @@ export default function App() {
               </div>
             )}
 
-            {/* 2. 회원 관리 탭 */}
             {activeTab === 'members' && (
               <div className="space-y-4 animate-in fade-in">
                 <div className="flex gap-2">
@@ -278,7 +344,6 @@ export default function App() {
               </div>
             )}
 
-            {/* 3. QR 및 배포 탭 */}
             {activeTab === 'qr' && (
               <div className="space-y-6 animate-in fade-in">
                 <div className="bg-indigo-50 p-6 rounded-[32px] border border-indigo-100 shadow-inner">
@@ -319,7 +384,6 @@ export default function App() {
         )}
       </main>
 
-      {/* 하단 내비게이션 바 */}
       {viewMode === 'admin' && (
         <nav className="absolute bottom-0 left-0 right-0 bg-white/80 backdrop-blur-xl border-t border-slate-100 flex justify-around items-center px-4 pb-8 pt-4 z-50">
           {[
@@ -343,5 +407,14 @@ export default function App() {
         </nav>
       )}
     </div>
+  );
+}
+
+// 최상단에 ErrorBoundary를 감싸서 내보냅니다.
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <MainApp />
+    </ErrorBoundary>
   );
 }
