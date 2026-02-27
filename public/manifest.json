@@ -1,0 +1,18 @@
+{
+  "short_name": "출석 V4",
+  "name": "스마트 출석 관리 시스템 V4",
+  "description": "클라우드 기반 모바일 출석 체크 시스템",
+  "icons": [
+    {
+      "src": "/vite.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#4f46e5",
+  "background_color": "#f8fafc"
+}
